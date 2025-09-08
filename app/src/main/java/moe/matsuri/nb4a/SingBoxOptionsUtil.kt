@@ -1,28 +1,26 @@
 package moe.matsuri.nb4a
 
 import io.nekohasekai.sagernet.database.DataStore
-import io.nekohasekai.sagernet.utils.GeoipUtils
-import io.nekohasekai.sagernet.utils.GeositeUtils
 import moe.matsuri.nb4a.SingBoxOptions.RuleSet
 
 object SingBoxOptionsUtil {
 
     fun domainStrategy(tag: String): String {
-        fun auto2AsIs(key: String): String {
-            return (DataStore.configurationStore.getString(key) ?: "").replace("auto", "")
+        fun auto2(key: String, newS: String): String {
+            return (DataStore.configurationStore.getString(key) ?: "").replace("auto", newS)
         }
         return when (tag) {
             "dns-remote" -> {
-                auto2AsIs("domain_strategy_for_remote")
+                auto2("domain_strategy_for_remote", "")
             }
 
             "dns-direct" -> {
-                auto2AsIs("domain_strategy_for_direct")
+                auto2("domain_strategy_for_direct", "")
             }
 
             // server
             else -> {
-                auto2AsIs("domain_strategy_for_server")
+                auto2("domain_strategy_for_server", "prefer_ipv4")
             }
         }
     }
@@ -47,8 +45,7 @@ fun SingBoxOptions.DNSRule_DefaultOptions.makeSingBoxRule(list: List<String>) {
         } else if (it.startsWith("keyword:")) {
             domain_keyword.plusAssign(it.removePrefix("keyword:").lowercase())
         } else {
-            // https://github.com/SagerNet/sing-box/commit/5d41e328d4a9f7549dd27f11b4ccc43710a73664
-            domain.plusAssign(it.lowercase())
+            domain_suffix.plusAssign(it.lowercase())
         }
     }
     rule_set?.removeIf { it.isNullOrBlank() }
@@ -76,23 +73,21 @@ fun SingBoxOptions.DNSRule_DefaultOptions.checkEmpty(): Boolean {
 fun generateRuleSet(ruleSetString: List<String>, ruleSet: MutableList<RuleSet>) {
     ruleSetString.forEach {
         when {
-            it.startsWith("geoip") -> {
-                val geoipPath = GeoipUtils.generateRuleSet(country = it.removePrefix("geoip:"))
+            it.startsWith("geoip:") -> {
                 ruleSet.add(RuleSet().apply {
                     type = "local"
                     tag = it
                     format = "binary"
-                    path = geoipPath
+                    path = it
                 })
             }
 
-            it.startsWith("geosite") -> {
-                val geositePath = GeositeUtils.generateRuleSet(code = it.removePrefix("geosite:"))
+            it.startsWith("geosite:") -> {
                 ruleSet.add(RuleSet().apply {
                     type = "local"
                     tag = it
                     format = "binary"
-                    path = geositePath
+                    path = it
                 })
             }
         }
@@ -113,8 +108,11 @@ fun SingBoxOptions.Rule_DefaultOptions.makeSingBoxRule(list: List<String>, isIP:
     list.forEach {
         if (isIP) {
             if (it.startsWith("geoip:")) {
-                rule_set.plusAssign(it)
-                rule_set_ipcidr_match_source = false
+                if (it == "geoip:private") {
+                    ip_is_private = true
+                } else {
+                    rule_set.plusAssign(it)
+                }
             } else {
                 ip_cidr.plusAssign(it)
             }
@@ -131,8 +129,7 @@ fun SingBoxOptions.Rule_DefaultOptions.makeSingBoxRule(list: List<String>, isIP:
         } else if (it.startsWith("keyword:")) {
             domain_keyword.plusAssign(it.removePrefix("keyword:").lowercase())
         } else {
-            // https://github.com/SagerNet/sing-box/commit/5d41e328d4a9f7549dd27f11b4ccc43710a73664
-            domain.plusAssign(it.lowercase())
+            domain_suffix.plusAssign(it.lowercase())
         }
     }
     ip_cidr?.removeIf { it.isNullOrBlank() }
@@ -160,5 +157,7 @@ fun SingBoxOptions.Rule_DefaultOptions.checkEmpty(): Boolean {
     if (port?.isNotEmpty() == true) return false
     if (port_range?.isNotEmpty() == true) return false
     if (source_ip_cidr?.isNotEmpty() == true) return false
+    //
+    if (!_hack_custom_config.isNullOrBlank()) return false
     return true
 }

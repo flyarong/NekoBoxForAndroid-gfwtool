@@ -16,14 +16,14 @@ import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.preference.EditTextPreferenceModifiers
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.utils.Theme
-import io.nekohasekai.sagernet.widget.AppListPreference
-import moe.matsuri.nb4a.Protocols
 import moe.matsuri.nb4a.ui.*
 
 class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
     private lateinit var isProxyApps: SwitchPreference
-    private lateinit var nekoPlugins: AppListPreference
+
+    private lateinit var globalCustomConfig: EditConfigPreference
+
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -40,16 +40,6 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         preferenceManager.preferenceDataStore = DataStore.configurationStore
         DataStore.initGlobal()
         addPreferencesFromResource(R.xml.global_preferences)
-
-        DataStore.routePackages = DataStore.nekoPlugins
-        nekoPlugins = findPreference(Key.NEKO_PLUGIN_MANAGED)!!
-        nekoPlugins.setOnPreferenceClickListener {
-            // borrow from route app settings
-            startActivity(Intent(
-                context, AppListActivity::class.java
-            ).apply { putExtra(Key.NEKO_PLUGIN_MANAGED, true) })
-            true
-        }
 
         val appTheme = findPreference<ColorPickerPreference>(Key.APP_THEME)!!
         appTheme.setOnPreferenceChangeListener { _, newTheme ->
@@ -76,14 +66,9 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         val allowAccess = findPreference<Preference>(Key.ALLOW_ACCESS)!!
         val appendHttpProxy = findPreference<SwitchPreference>(Key.APPEND_HTTP_PROXY)!!
 
-        val portLocalDns = findPreference<EditTextPreference>(Key.LOCAL_DNS_PORT)!!
         val showDirectSpeed = findPreference<SwitchPreference>(Key.SHOW_DIRECT_SPEED)!!
         val ipv6Mode = findPreference<Preference>(Key.IPV6_MODE)!!
         val trafficSniffing = findPreference<Preference>(Key.TRAFFIC_SNIFFING)!!
-
-        val muxConcurrency = findPreference<EditTextPreference>(Key.MUX_CONCURRENCY)!!
-        val tcpKeepAliveInterval = findPreference<EditTextPreference>(Key.TCP_KEEP_ALIVE_INTERVAL)!!
-        tcpKeepAliveInterval.isVisible = false
 
         val bypassLan = findPreference<SwitchPreference>(Key.BYPASS_LAN)!!
         val bypassLanInCore = findPreference<SwitchPreference>(Key.BYPASS_LAN_IN_CORE)!!
@@ -95,6 +80,8 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
         val logLevel = findPreference<LongClickListPreference>(Key.LOG_LEVEL)!!
         val mtu = findPreference<MTUPreference>(Key.MTU)!!
+        globalCustomConfig = findPreference(Key.GLOBAL_CUSTOM_CONFIG)!!
+        globalCustomConfig.useConfigStore(Key.GLOBAL_CUSTOM_CONFIG)
 
         logLevel.dialogLayoutResource = R.layout.layout_loglevel_help
         logLevel.setOnPreferenceChangeListener { _, _ ->
@@ -123,16 +110,6 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             true
         }
 
-        val muxProtocols = findPreference<MultiSelectListPreference>(Key.MUX_PROTOCOLS)!!
-
-        muxProtocols.apply {
-            val e = Protocols.getCanMuxList().toTypedArray()
-            entries = e
-            entryValues = e
-        }
-
-        portLocalDns.setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
-        muxConcurrency.setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
         mixedPort.setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
 
         val metedNetwork = findPreference<Preference>(Key.METERED_NETWORK)!!
@@ -175,8 +152,6 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         appendHttpProxy.onPreferenceChangeListener = reloadListener
         showDirectSpeed.onPreferenceChangeListener = reloadListener
         trafficSniffing.onPreferenceChangeListener = reloadListener
-        muxConcurrency.onPreferenceChangeListener = reloadListener
-        tcpKeepAliveInterval.onPreferenceChangeListener = reloadListener
         bypassLan.onPreferenceChangeListener = reloadListener
         bypassLanInCore.onPreferenceChangeListener = reloadListener
         mtu.onPreferenceChangeListener = reloadListener
@@ -186,14 +161,13 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         directDns.onPreferenceChangeListener = reloadListener
         enableDnsRouting.onPreferenceChangeListener = reloadListener
 
-        portLocalDns.onPreferenceChangeListener = reloadListener
         ipv6Mode.onPreferenceChangeListener = reloadListener
         allowAccess.onPreferenceChangeListener = reloadListener
 
         resolveDestination.onPreferenceChangeListener = reloadListener
         tunImplementation.onPreferenceChangeListener = reloadListener
         acquireWakeLock.onPreferenceChangeListener = reloadListener
-
+        globalCustomConfig.onPreferenceChangeListener = reloadListener
     }
 
     override fun onResume() {
@@ -202,8 +176,8 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         if (::isProxyApps.isInitialized) {
             isProxyApps.isChecked = DataStore.proxyApps
         }
-        if (::nekoPlugins.isInitialized) {
-            nekoPlugins.postUpdate()
+        if (::globalCustomConfig.isInitialized) {
+            globalCustomConfig.notifyChanged()
         }
     }
 

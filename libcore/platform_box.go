@@ -11,12 +11,13 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/matsuridayo/libneko/neko_log"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/process"
 	"github.com/sagernet/sing-box/experimental/libbox/platform"
+	sblog "github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	tun "github.com/sagernet/sing-tun"
-	"github.com/sagernet/sing/common/control"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/logger"
 	N "github.com/sagernet/sing/common/network"
@@ -34,7 +35,7 @@ func (w *boxPlatformInterfaceWrapper) ReadWIFIState() adapter.WIFIState {
 	}
 }
 
-func (w *boxPlatformInterfaceWrapper) Initialize(ctx context.Context, router adapter.Router) error {
+func (w *boxPlatformInterfaceWrapper) Initialize(n adapter.NetworkManager) error {
 	return nil
 }
 
@@ -42,13 +43,14 @@ func (w *boxPlatformInterfaceWrapper) UsePlatformAutoDetectInterfaceControl() bo
 	return true
 }
 
-func (w *boxPlatformInterfaceWrapper) AutoDetectInterfaceControl() control.Func {
-	// "protect"
-	return func(network, address string, conn syscall.RawConn) error {
-		return control.Raw(conn, func(fd uintptr) error {
-			return intfBox.AutoDetectInterfaceControl(int32(fd))
-		})
+func (w *boxPlatformInterfaceWrapper) AutoDetectInterfaceControl(fd int) error {
+	// call protect_path
+	if !isBgProcess {
+		_ = sendFdToProtect(fd, "protect_path")
+		return nil
 	}
+	// bg process call VPNService
+	return intfBox.AutoDetectInterfaceControl(int32(fd))
 }
 
 func (w *boxPlatformInterfaceWrapper) OpenTun(options *tun.Options, platformOptions option.TunPlatformOptions) (tun.Tun, error) {
@@ -83,19 +85,27 @@ func (w *boxPlatformInterfaceWrapper) UsePlatformDefaultInterfaceMonitor() bool 
 }
 
 func (w *boxPlatformInterfaceWrapper) CreateDefaultInterfaceMonitor(l logger.Logger) tun.DefaultInterfaceMonitor {
-	return &interfaceMonitor{}
+	return &interfaceMonitorStub{}
 }
 
 func (w *boxPlatformInterfaceWrapper) UsePlatformInterfaceGetter() bool {
 	return false
 }
 
-func (w *boxPlatformInterfaceWrapper) Interfaces() ([]control.Interface, error) {
+func (w *boxPlatformInterfaceWrapper) Interfaces() ([]adapter.NetworkInterface, error) {
 	return nil, errors.New("wtf")
 }
 
 func (w *boxPlatformInterfaceWrapper) IncludeAllNetworks() bool {
 	return false
+}
+
+func (w *boxPlatformInterfaceWrapper) SendNotification(notification *platform.Notification) error {
+	return nil
+}
+
+func (s *boxPlatformInterfaceWrapper) SystemCertificates() []string {
+	return nil
 }
 
 // Android not using
@@ -146,4 +156,20 @@ func (w *boxPlatformInterfaceWrapper) Write(p []byte) (n int, err error) {
 		log.Print(string(p))
 	}
 	return len(p), nil
+}
+
+// 日志
+
+type boxPlatformLogWriterWrapper struct {
+}
+
+var boxPlatformLogWriter sblog.PlatformWriter = &boxPlatformLogWriterWrapper{}
+
+func (w *boxPlatformLogWriterWrapper) DisableColors() bool { return true }
+
+func (w *boxPlatformLogWriterWrapper) WriteMessage(level uint8, message string) {
+	if !strings.HasSuffix(message, "\n") {
+		message += "\n"
+	}
+	neko_log.LogWriter.Write([]byte(message))
 }

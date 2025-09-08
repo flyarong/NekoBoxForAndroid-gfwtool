@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.ShortcutManager
 import android.graphics.ImageDecoder
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -13,6 +12,7 @@ import android.view.MenuItem
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.getSystemService
+import androidx.core.net.toUri
 import com.google.zxing.Result
 import com.king.zxing.CameraScan
 import com.king.zxing.DefaultCameraScan
@@ -26,7 +26,6 @@ import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.databinding.LayoutScannerBinding
 import io.nekohasekai.sagernet.group.RawUpdater
 import io.nekohasekai.sagernet.ktx.*
-import io.nekohasekai.sagernet.widget.ListHolderListener
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -43,7 +42,6 @@ class ScannerActivity : ThemedActivity(),
         if (Build.VERSION.SDK_INT >= 25) getSystemService<ShortcutManager>()!!.reportShortcutUsed("scan")
         binding = LayoutScannerBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        ListHolderListener.setup(this)
         setSupportActionBar(findViewById(R.id.toolbar))
         supportActionBar?.apply {
             setDisplayHomeAsUpEnabled(true)
@@ -140,7 +138,7 @@ class ScannerActivity : ThemedActivity(),
             } catch (e: SubscriptionFoundException) {
                 startActivity(Intent(this@ScannerActivity, MainActivity::class.java).apply {
                     action = Intent.ACTION_VIEW
-                    data = Uri.parse(e.link)
+                    data = e.link.toUri()
                 })
             } catch (e: Throwable) {
                 Logs.w(e)

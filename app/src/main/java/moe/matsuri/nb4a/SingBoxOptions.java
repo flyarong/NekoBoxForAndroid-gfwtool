@@ -1,19 +1,97 @@
 package moe.matsuri.nb4a;
 
-import static moe.matsuri.nb4a.utils.JavaUtil.gson;
-
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonSerializationContext;
+import com.google.gson.JsonSerializer;
+import com.google.gson.ToNumberPolicy;
+import com.google.gson.TypeAdapter;
+import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 
+import java.lang.reflect.Type;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import moe.matsuri.nb4a.utils.Util;
 
 public class SingBoxOptions {
 
     // base
 
+    private static final Gson gsonSingbox = new GsonBuilder()
+            .registerTypeHierarchyAdapter(SingBoxOption.class, new SingBoxOptionSerializer())
+            .setPrettyPrinting()
+            .setNumberToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
+            .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
+            .setLenient()
+            .disableHtmlEscaping()
+            .create();
+
     public static class SingBoxOption {
+
+        public transient Map<String, Object> _hack_config_map; // 仍然用普通json方式合并，所以Object内不要使用 _hack
+
+        public transient String _hack_custom_config;
+
+        public SingBoxOption() {
+            _hack_config_map = new HashMap<>();
+        }
+
         public Map<String, Object> asMap() {
-            return gson.fromJson(gson.toJson(this), Map.class);
+            return gsonSingbox.fromJson(gsonSingbox.toJson(this), Map.class);
+        }
+
+    }
+
+    public static final class CustomSingBoxOption extends SingBoxOption {
+
+        public transient String config;
+
+        public CustomSingBoxOption(String config) {
+            super();
+            this.config = config;
+        }
+
+        public Map<String, Object> getBasicMap() {
+            Map<String, Object> map = gsonSingbox.fromJson(config, Map.class);
+            if (map == null) {
+                map = new HashMap<>();
+            }
+            return map;
+        }
+    }
+
+    // 自定义序列化器
+    public static class SingBoxOptionSerializer implements JsonSerializer<SingBoxOption> {
+        @Override
+        public JsonElement serialize(SingBoxOption src, Type typeOfSrc, JsonSerializationContext context) {
+            // 拿到原始的 delegate（默认序列化器）
+            TypeAdapter<?> delegate = gsonSingbox.getDelegateAdapter(
+                    new TypeAdapterFactory() {
+                        @Override
+                        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
+                            return null; // 返回 null，表示只作为“跳过当前自定义”的 marker
+                        }
+                    },
+                    TypeToken.get(src.getClass())
+            );
+            Map<String, Object> map;
+            if (src instanceof CustomSingBoxOption) {
+                map = ((CustomSingBoxOption) src).getBasicMap();
+            } else {
+                map = gsonSingbox.fromJson(((TypeAdapter<SingBoxOption>) delegate).toJson(src), Map.class);
+            }
+            if (src._hack_config_map != null && !src._hack_config_map.isEmpty()) {
+                Util.INSTANCE.mergeMap(map, src._hack_config_map);
+            }
+            if (src._hack_custom_config != null && !src._hack_custom_config.isBlank()) {
+                Util.INSTANCE.mergeJSON(map, src._hack_custom_config);
+            }
+            return gsonSingbox.toJsonTree(map);
         }
     }
 
@@ -33,7 +111,7 @@ public class SingBoxOptions {
 
         public List<Inbound> inbounds;
 
-        public List<Map<String, Object>> outbounds;
+        public List<SingBoxOption> outbounds;
 
         public RouteOptions route;
 
@@ -449,9 +527,9 @@ public class SingBoxOptions {
 
         public OutboundTLSOptions tls;
 
-        public String hop_ports;
+        public List<String> server_ports;
 
-        public Integer hop_interval;
+        public String hop_interval;
 
     }
 
@@ -575,9 +653,9 @@ public class SingBoxOptions {
 
         public OutboundTLSOptions tls;
 
-        public String hop_ports;
+        public List<String> server_ports;
 
-        public Integer hop_interval;
+        public String hop_interval;
 
     }
 
@@ -1879,10 +1957,6 @@ public class SingBoxOptions {
 
         public Boolean enabled;
 
-        public Boolean pq_signature_schemes_enabled;
-
-        public Boolean dynamic_record_sizing_disabled;
-
         // Generate note: Listable
         public List<String> key;
 
@@ -1893,10 +1967,6 @@ public class SingBoxOptions {
     public static class OutboundECHOptions extends SingBoxOption {
 
         public Boolean enabled;
-
-        public Boolean pq_signature_schemes_enabled;
-
-        public Boolean dynamic_record_sizing_disabled;
 
         // Generate note: Listable
         public List<String> config;
@@ -3910,9 +3980,9 @@ public class SingBoxOptions {
 
         public OutboundTLSOptions tls;
 
-        public String hop_ports;
+        public List<String> server_ports;
 
-        public Integer hop_interval;
+        public String hop_interval;
 
     }
 
@@ -4284,9 +4354,9 @@ public class SingBoxOptions {
 
         public OutboundTLSOptions tls;
 
-        public String hop_ports;
+        public List<String> server_ports;
 
-        public Integer hop_interval;
+        public String hop_interval;
 
     }
 
@@ -4343,7 +4413,6 @@ public class SingBoxOptions {
 
         public Boolean source_ip_is_private;
 
-        public Boolean rule_set_ipcidr_match_source;
         public Boolean ip_is_private;
 
         // Generate note: Listable
@@ -4382,6 +4451,8 @@ public class SingBoxOptions {
         public String clash_mode;
 
         public Boolean invert;
+
+        public String action;
 
         public String outbound;
 
@@ -4514,6 +4585,59 @@ public class SingBoxOptions {
 
         public String path;
 
+
+    }
+
+    // sing-box Options 生成器已经坏了，以下是从 husi 抄的
+
+    public static class Outbound_AnyTLSOptions extends Outbound {
+
+        // Generate note: nested type DialerOptions
+        public String detour;
+
+        public String bind_interface;
+
+        public String inet4_bind_address;
+
+        public String inet6_bind_address;
+
+        public String protect_path;
+
+        public Integer routing_mark;
+
+        public Boolean reuse_addr;
+
+        public String connect_timeout;
+
+        public Boolean tcp_fast_open;
+
+        public Boolean tcp_multi_path;
+
+        public Boolean udp_fragment;
+
+        public String domain_strategy;
+
+        public String network_strategy;
+
+        public List<String> network_type;
+
+        public List<String> fallback_network_type;
+
+        public String fallback_delay;
+
+        // Generate note: nested type ServerOptions
+        public String server;
+
+        public Integer server_port;
+
+        // Generate note: nested type OutboundTLSOptionsContainer
+        public OutboundTLSOptions tls;
+
+        public String password;
+
+        public String idle_session_check_interval;
+
+        public String idle_session_timeout;
 
     }
 

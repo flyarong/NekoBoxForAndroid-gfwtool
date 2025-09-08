@@ -5,8 +5,11 @@ package io.nekohasekai.sagernet.ktx
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.annotation.SuppressLint
-import android.content.*
-import android.content.pm.PackageInfo
+import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.Resources
 import android.os.Build
 import android.system.Os
@@ -17,6 +20,8 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.annotation.AttrRes
 import androidx.annotation.ColorRes
 import androidx.core.content.ContextCompat
+import androidx.core.view.isGone
+import androidx.core.view.isVisible
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
@@ -27,16 +32,23 @@ import com.jakewharton.processphoenix.ProcessPhoenix
 import io.nekohasekai.sagernet.BuildConfig
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
-import io.nekohasekai.sagernet.bg.Executable
+import io.nekohasekai.sagernet.aidl.ISagerNetService
+import io.nekohasekai.sagernet.bg.BaseService
+import io.nekohasekai.sagernet.bg.SagerConnection
 import io.nekohasekai.sagernet.database.DataStore
-import io.nekohasekai.sagernet.database.SagerDatabase
-import io.nekohasekai.sagernet.database.preference.PublicDatabase
 import io.nekohasekai.sagernet.ui.MainActivity
 import io.nekohasekai.sagernet.ui.ThemedActivity
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import moe.matsuri.nb4a.utils.NGUtil
 import java.io.FileDescriptor
-import java.net.*
+import java.net.HttpURLConnection
+import java.net.InetAddress
+import java.net.Socket
+import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -48,6 +60,7 @@ import kotlin.reflect.KMutableProperty0
 import kotlin.reflect.KProperty
 import kotlin.reflect.KProperty0
 
+fun String?.blankAsNull(): String? = if (isNullOrBlank()) null else this
 
 inline fun <T> Iterable<T>.forEachTry(action: (T) -> Unit) {
     var result: Exception? = null
@@ -112,9 +125,6 @@ fun Context.listenForPackageChanges(onetime: Boolean = true, callback: () -> Uni
             addDataScheme("package")
         })
     }
-
-val PackageInfo.signaturesCompat
-    get() = if (Build.VERSION.SDK_INT >= 28) signingInfo.apkContentsSigners else @Suppress("DEPRECATION") signatures
 
 /**
  * Based on: https://stackoverflow.com/a/26348729/2245107
@@ -193,7 +203,7 @@ val shortAnimTime by lazy {
 fun View.crossFadeFrom(other: View) {
     clearAnimation()
     other.clearAnimation()
-    if (visibility == View.VISIBLE && other.visibility == View.GONE) return
+    if (isVisible && other.isGone) return
     alpha = 0F
     visibility = View.VISIBLE
     animate().alpha(1F).duration = shortAnimTime
@@ -240,16 +250,33 @@ fun Fragment.needReload() {
 
 fun Fragment.needRestart() {
     snackbar(R.string.need_restart).setAction(R.string.apply) {
-        SagerNet.stopService()
-        val ctx = requireContext()
-        runOnDefaultDispatcher {
-            delay(500)
-            SagerDatabase.instance.close()
-            PublicDatabase.instance.close()
-            Executable.killAll(true)
-            ProcessPhoenix.triggerRebirth(ctx, Intent(ctx, MainActivity::class.java))
-        }
+        triggerFullRestart(requireContext())
     }.show()
+}
+
+fun triggerFullRestart(ctx: Context) {
+    runOnDefaultDispatcher {
+        SagerNet.stopService()
+        delay(500)
+        SagerConnection.restartingApp = true
+        val connection = SagerConnection(SagerConnection.CONNECTION_ID_RESTART_BG)
+        connection.connect(ctx, RestartCallback {
+            ProcessPhoenix.triggerRebirth(ctx, Intent(ctx, MainActivity::class.java))
+        })
+    }
+}
+
+private class RestartCallback(val callback: () -> Unit) : SagerConnection.Callback {
+    override fun stateChanged(
+        state: BaseService.State,
+        profileName: String?,
+        msg: String?
+    ) {
+    }
+
+    override fun onServiceConnected(service: ISagerNetService) {
+        callback()
+    }
 }
 
 fun Context.getColour(@ColorRes colorRes: Int): Int {
@@ -263,11 +290,9 @@ fun Context.getColorAttr(@AttrRes resId: Int): Int {
 }
 
 val isExpert: Boolean by lazy { BuildConfig.DEBUG || DataStore.isExpert }
-
-val isExpertFlavor = ((BuildConfig.FLAVOR == "expert") || BuildConfig.DEBUG)
 const val isOss = BuildConfig.FLAVOR == "oss"
-const val isFdroid = BuildConfig.FLAVOR == "fdroid"
 const val isPlay = BuildConfig.FLAVOR == "play"
+const val isPreview = BuildConfig.FLAVOR == "preview"
 
 fun <T> Continuation<T>.tryResume(value: T) {
     try {
